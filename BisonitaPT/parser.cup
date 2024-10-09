@@ -1,0 +1,499 @@
+/*
+   Simple +/-/* expression language; 
+   parser evaluates constant expressions on the fly
+*/
+
+package cup.example;
+
+import java_cup.runtime.*;
+import cup.example.Lexer;
+import java.io.IOException;
+import java.io.File;
+import java.io.FileInputStream;
+import java.util.HashMap;
+import java.util.Map;
+
+parser code {:
+  private Lexer lexer;
+  private TreeParser parseTree;
+  public TreeParser getparseTree() { return parseTree;} 
+  private Map<String, SymbolInfo> symbolTable = new HashMap<>();
+:}
+
+/* define how to connect to the scanner! */
+init with {:
+  ComplexSymbolFactory f = new ComplexSymbolFactory();
+  symbolFactory = f;
+  File file = new File("input.txt");
+  FileInputStream fis = null;
+  try {	
+    fis = new FileInputStream(file);
+  } catch (IOException e) {
+    e.printStackTrace();
+  } 
+  lexer = new Lexer(f,fis);
+:};
+scan with {: return lexer.next_token(); :};
+
+/* Terminals (tokens returned by the scanner). */
+terminal            SEMI, PLUS, MINUS, UMINUS, TIMES, LPAREN, RPAREN, CLPAREN, RLPAREN, BIGLPAREN, BIGRPAREN, ASSIGN, DIVIDE, EXPONENT, MOD, AND, OR, NOT,
+					EQUAL, NOT_EQUAL, LESS_THAN, GREATER_THAN, LESS_THAN_EQUAL, GREATER_THAN_EQUAL,
+					PROGRAM, ENDPROGRAM, FUNCTION, ENDFUNCTION, IF, THEN, ELSE, ENDIF, WHILE, DO, ENDDO, FOR, TO, ENDFOR, RETURN, STRING, INT,
+					REAL, CLEAR, MOVE, DRAW, WRITE, SET, COLOR, LINE, COMMA;
+terminal Integer    NUMBER;        // our scanner provides numbers as integers
+terminal String     ID;
+
+/* Non terminals */
+non terminal TreeParser program;
+non terminal TreeNode expr_list;
+non terminal Integer  expr;    // used to store evaluated subexpressions
+non terminal TreeNode  declaration_list, declaration, var_declaration, fun_declaration;
+non terminal TreeNode params, param_list, param, identifier_list;
+non terminal TreeNode data_type, var_list, compound_stmt, statement_list;
+non terminal TreeNode statement, expression_stmt, selection_stmt, iteration_stmt;
+non terminal TreeNode return_stmt, expression, var, simple_expression, relop;
+non terminal TreeNode additive_expression, addop, term, mulop, factor, call, args, arg_list;
+
+/* Precedences */
+precedence left PLUS, MINUS;
+precedence left TIMES;
+precedence left UMINUS;
+
+/* The grammar rules */
+
+program ::= PROGRAM ID SEMI declaration_list:dclrl statement_list:stl ENDPROGRAM SEMI {: 
+    	System.out.println("program"); 
+    	parseTree = new TreeParser("program");
+
+    	if (stl != null) {
+
+        parseTree.addChild("declaration_list", dclrl.toString(), "declaration");
+        parseTree.addChild("statement_list", stl.toString(), "statement");
+
+        }
+    	RESULT = parseTree;
+
+for (TreeNode declaration : dclrl.getChildren()) {
+        if (declaration.label.equals("declaration")) {
+            TreeNode varList = declaration.getChild("var_list");
+            String dataType = declaration.getChild("data_type").label;
+
+            for (TreeNode idNode : varList.getChildren()) {
+                String identifier = idNode.label;
+                SymbolInfo symbolInfo = new SymbolInfo(dataType);
+                symbolTable.put(identifier, symbolInfo);
+            }
+        }
+    }
+:};
+			   
+data_type ::= STRING {: 
+    RESULT = new TreeNode("data_type", "STRING", "string");
+:} 
+			| INT {: 
+    RESULT = new TreeNode("data_type", "INT", "integer");
+:} 
+			| REAL {: 
+    RESULT = new TreeNode("data_type", "REAL", "real");
+:};
+			      
+identifier_list ::= ID 
+                | identifier_list:il COMMA ID {:  
+                      RESULT = new TreeNode("identifier_list");
+                      if (il != null) {
+                          RESULT.addChild(il);
+                      }
+                      RESULT.addChild(new TreeNode("ID", "ID", "identifier"));
+                 :};
+            
+fun_declaration ::= data_type:dt ID LPAREN params:prs RPAREN compound_stmt:cst
+					{: RESULT = new TreeNode("fun_declaration");
+    				   RESULT.addChild(dt);
+    				   RESULT.addChild(new TreeNode("ID", "functionName", "function"));
+    				   RESULT.addChild(new TreeNode("LPAREN", "LPAREN", "LPAREN"));
+    				   RESULT.addChild(prs);
+    				   RESULT.addChild(new TreeNode("RPAREN", "RPAREN", "rparen"));
+    				   RESULT.addChild(cst);				  
+:};
+				  
+var_declaration ::= data_type:dt ID SEMI 
+					{: RESULT = new TreeNode("var_declaration");
+    				   RESULT.addChild(dt);
+    				   RESULT.addChild(new TreeNode("ID", "variableName", "variable"));
+    				   RESULT.addChild(new TreeNode("SEMI", "SEMI", "semi"));
+:} 
+					| data_type:dt ID BIGLPAREN NUMBER BIGRPAREN SEMI {:
+    				   RESULT = new TreeNode("var_declaration1");
+    				   RESULT.addChild(dt);
+    				   RESULT.addChild(new TreeNode("ID", "arrayName", "array"));
+    				   RESULT.addChild(new TreeNode("BIGLPAREN", "BIGLPAREN", "biglparen"));	
+   					   RESULT.addChild(new TreeNode("NUMBER", "NUMBER", "number"));
+    				   RESULT.addChild(new TreeNode("BIGRPAREN", "BIGRPAREN", "bigrparen"));
+    				   RESULT.addChild(new TreeNode("SEMI"));
+:};
+			      
+declaration ::= data_type:dt var_list:vl SEMI {:
+    			 RESULT = new TreeNode("declaration2");
+    			 RESULT.addChild(dt);
+    			 RESULT.addChild(vl);
+    			 RESULT.addChild(new TreeNode("SEMI", "SEMI", "semi"));
+:};
+			   
+declaration_list ::= declaration:dclr 
+					{:
+    				 RESULT = new TreeNode("declaration3");
+    				 RESULT.addChild(dclr);
+    				 System.out.println("declaration3");
+:} 
+					| declaration_list:dclrl declaration:dclr {:
+    				 RESULT = new TreeNode("declaration_list_declaration");
+    				 RESULT.addChild(dclrl);
+    				 RESULT.addChild(dclr);
+    				 System.out.println("declaration_list_declaration");
+:};
+		    
+var_list ::= ID {:
+   				 RESULT = new TreeNode("var_list");
+    			 RESULT.addChild(new TreeNode("ID", "listName", "list"));
+    			 System.out.println("var_list");
+:} 
+				| var_list:vt COMMA ID {:
+    			  RESULT = new TreeNode("var_list1");
+    			  RESULT.addChild(vt);
+    			  RESULT.addChild(new TreeNode("COMMA", "COMMA", "comma"));
+    			  RESULT.addChild(new TreeNode("ID", "listName", "list"));
+    			  System.out.println("var_list1");
+:};
+
+params ::= param_list:pl {:
+    					  RESULT = new TreeNode("params");
+    					  RESULT.addChild(pl);
+    					  System.out.println("params");
+:};
+		 
+param_list ::= param_list:pl SEMI param:prm {:
+    						RESULT = new TreeNode("param_list");
+    						RESULT.addChild(pl);
+    						RESULT.addChild(new TreeNode("SEMI", "SEMI", "semi"));
+    						RESULT.addChild(prm);
+    						System.out.println("param_list");
+											:}
+ 			 | param:prm {:
+    						RESULT = new TreeNode("param_list1");
+    						RESULT.addChild(prm);
+    						System.out.println("param_list1");
+:};
+			 
+param ::= data_type:dt ID {:
+    						 RESULT = new TreeNode("param");
+    						 RESULT.addChild(dt);
+    						 RESULT.addChild(new TreeNode("ID", "paramName", "param"));
+    						 System.out.println("param");
+						  :} 
+						  | data_type:dt ID BIGLPAREN BIGRPAREN {:
+    						RESULT = new TreeNode("param1");
+    						RESULT.addChild(dt);
+    						RESULT.addChild(new TreeNode("ID", "dataName", "data"));
+    						RESULT.addChild(new TreeNode("BIGLPAREN", "BIGLPAREN", "bigLPAREN"));
+    						RESULT.addChild(new TreeNode("BIGRPAREN", "BIGRPAREN", "bigrparen"));
+    						System.out.println("param1");
+:};		
+          		 
+compound_stmt ::= CLPAREN RLPAREN {:
+    								 RESULT = new TreeNode("compound_stmt");
+    							     RESULT.addChild(new TreeNode("CLPAREN", "CLPAREN", "cLPAREN"));
+    								 RESULT.addChild(new TreeNode("RLPAREN", "RLPAREN", "rLPAREN"));
+    								 System.out.println("compound_stmt");
+:};	
+						 
+statement_list ::= | statement_list:stl statement:st {:
+    									RESULT = new TreeNode("statement_list_statement");
+    										if (stl != null) {
+        									   RESULT.addChild(stl);
+    										}
+    										if (st != null) {
+        									   RESULT.addChild(st);
+    										}
+    										System.out.println("statement_list_statement");
+:};
+				
+statement ::= expression_stmt:est {:
+    								RESULT = new TreeNode("expression_stmt");
+    								 if (est != null) {
+        								RESULT.addChild(est);
+    							  }
+    								System.out.println("expression_stmt");
+:} 
+			| compound_stmt:cst {:
+    								 RESULT = new TreeNode("compound_stmt");
+    								   if (cst != null) {
+        								 RESULT.addChild(cst);
+    							  }
+    								System.out.println("compound_stmt");
+:} 
+			| selection_stmt:sst {:
+    								 RESULT = new TreeNode("selection_stmt");
+    								   if (sst != null) {
+        								RESULT.addChild(sst);
+    							  }
+    							   System.out.println("selection_stmt");
+:} 
+			| iteration_stmt:ist {:
+    								RESULT = new TreeNode("iteration_stmt");
+    								   if (ist != null) {
+        								RESULT.addChild(ist);
+    							  }
+    							   System.out.println("iteration_stmt");
+:} 
+			| return_stmt:rst {:
+    								RESULT = new TreeNode("return_stmt");
+    								    if (rst != null) {
+        								 RESULT.addChild(rst);
+    						      }
+    							   System.out.println("return_stmt");
+:};
+			
+expression_stmt ::= expression:ex SEMI {:
+    									  RESULT = new TreeNode("expression_stmt1");
+    										if (ex != null) {
+        									  RESULT.addChild(ex);
+    								   }
+    									RESULT.addChild(new TreeNode("SEMI", "SEMI", "semi"));
+    									System.out.println("expression_stmt1");
+:} 
+				   | SEMI {:
+    						RESULT = new TreeNode("expression_stmt2");
+    						RESULT.addChild(new TreeNode("SEMI", "SEMI", "semi"));
+    						System.out.println("expression_stmt2");
+:};
+				
+selection_stmt ::= IF LPAREN expression:ex RPAREN statement:st {:
+    									RESULT = new TreeNode("selection_stmt");
+    									RESULT.addChild(new TreeNode("IF", "IF", "if"));
+    									RESULT.addChild(new TreeNode("LPAREN", "LPAREN", "LPAREN"));
+    									RESULT.addChild(ex);
+    									RESULT.addChild(new TreeNode("RPAREN", "RPAREN", "rparen"));
+    									RESULT.addChild(st);
+    									System.out.println("selection_stmt");
+:} 
+				  | IF LPAREN expression:ex RPAREN statement:st ELSE statement:st_else {:
+    					RESULT = new TreeNode("selection_stmt1");
+    					RESULT.addChild(new TreeNode("IF", "IF", "if"));
+    					RESULT.addChild(new TreeNode("LPAREN", "LPAREN", "LPAREN"));
+    					RESULT.addChild(ex);
+    					RESULT.addChild(new TreeNode("RPAREN", "RPAREN", "rparen"));
+    					RESULT.addChild(st);
+    					RESULT.addChild(new TreeNode("ELSE", "ELSE", "else"));
+    					RESULT.addChild(st_else);
+    					System.out.println("selection_stmt1");
+:};
+
+iteration_stmt ::= WHILE LPAREN expression:ex RPAREN statement:st {:
+    						RESULT = new TreeNode("iteration_stmt");
+    						RESULT.addChild(new TreeNode("WHILE", "WHILE", "while"));
+    						RESULT.addChild(new TreeNode("LPAREN", "LPAREN", "LPAREN"));
+    						RESULT.addChild(ex);
+    						RESULT.addChild(new TreeNode("RPAREN", "RPAREN", "rparen"));
+    						RESULT.addChild(st);
+    						System.out.println("iteration_stmt");
+:};
+				 
+return_stmt ::= RETURN SEMI {:
+    							RESULT = new TreeNode("return_stmt");
+    							RESULT.addChild(new TreeNode("RETURN", "RETURN", "return"));
+    							RESULT.addChild(new TreeNode("SEMI", "SEMI", "semi"));
+    							System.out.println("return_stmt");
+:} 
+			   | RETURN statement:st {:
+    							RESULT = new TreeNode("return_stmt1");
+    							RESULT.addChild(new TreeNode("RETURN", "RETURN", "return"));
+    							RESULT.addChild(st);
+    							System.out.println("return_stmt1");
+:};
+			  
+expression ::= var:vr EQUAL expression:ex {:
+    							RESULT = new TreeNode("expression");
+    							RESULT.addChild(vr);
+    							RESULT.addChild(new TreeNode("EQUAL", "EQUAL", "equal"));
+    							RESULT.addChild(ex);
+    							System.out.println("expression");
+:} 
+			   | simple_expression:sex {:
+    							RESULT = new TreeNode("expression1");
+    							RESULT.addChild(sex);
+    							System.out.println("expression1");
+:};
+			 
+var ::= ID {:
+    			RESULT = new TreeNode("var");
+    			RESULT.addChild(new TreeNode("ID", "varName", "var"));
+    			System.out.println("var");
+:} 
+	    | ID BIGLPAREN expression:ex BIGRPAREN {:
+    					RESULT = new TreeNode("var1");
+    					RESULT.addChild(new TreeNode("ID", "expressionName", "expression"));
+    					RESULT.addChild(new TreeNode("BIGLPAREN", "BIGLPAREN", "bigLPAREN"));
+    					RESULT.addChild(ex);
+    					RESULT.addChild(new TreeNode("BIGRPAREN", "BIGRPAREN", "bigrparen"));
+    					System.out.println("var1");
+:};
+      
+simple_expression ::= additive_expression:aex relop:rlp additive_expression:aex_r {:
+    								RESULT = new TreeNode("simple_expression");
+    								RESULT.addChild(aex);
+    								RESULT.addChild(rlp);
+    								RESULT.addChild(aex_r);
+    								System.out.println("simple_expression");
+:} 
+					  | additive_expression:aex {:
+    							RESULT = new TreeNode("simple_expression1");
+    							RESULT.addChild(aex);
+    							System.out.println("simple_expression1");
+:};
+					
+relop ::= LESS_THAN_EQUAL {:
+    						 RESULT = new TreeNode("relop");
+    						 RESULT.addChild(new TreeNode("LESS_THAN_EQUAL", "LESS_THAN_EQUAL", "less_than_equal" ));
+    						 System.out.println("relop");
+:} 
+		  | LESS_THAN {:
+    					 RESULT = new TreeNode("relop1");
+    					 RESULT.addChild(new TreeNode("LESS_THAN", "LESS_THAN", "less_than"));
+    					 System.out.println("relop1");
+:} 
+		  | GREATER_THAN {:
+    					 RESULT = new TreeNode("relop2");
+    					 RESULT.addChild(new TreeNode("GREATER_THAN", "GREATER_THAN", "greater_than"));
+    					 System.out.println("relop2");
+:} 
+		  | GREATER_THAN_EQUAL {:
+    				     RESULT = new TreeNode("relop3");
+    					 RESULT.addChild(new TreeNode("GREATER_THAN_EQUAL", "GREATER_THAN_EQUAL", "greater_than_equal" ));
+    					 System.out.println("relop3");
+:} 
+		  | EQUAL {:
+    					 RESULT = new TreeNode("relop4");
+    					 RESULT.addChild(new TreeNode("EQUAL", "EQUAL", "equal"));
+    					 System.out.println("relop4");
+:} 
+		  | NOT_EQUAL {:
+    			         RESULT = new TreeNode("relop5");
+    					 RESULT.addChild(new TreeNode("NOT_EQUAL", "NOT_EQUAL", "not_equal"));
+    				     System.out.println("relop5");
+:};
+		
+additive_expression ::= additive_expression:aex addop:adp term:tm {:
+    									RESULT = new TreeNode("additive_expression");
+    									RESULT.addChild(aex);
+    									RESULT.addChild(adp);
+    									RESULT.addChild(tm);
+    									System.out.println("additive_expression");
+:} 					   | term:tm {:
+    								 RESULT = new TreeNode("additive_expression1");
+    								 RESULT.addChild(tm);
+    								 System.out.println("additive_expression1");
+:};
+					  
+addop ::= PLUS {:
+    				 RESULT = new TreeNode("addop");
+    				 RESULT.addChild(new TreeNode("PLUS", "PLUS", "plus"));
+    				 System.out.println("addop");
+:} 
+		  | MINUS {:
+    				 RESULT = new TreeNode("addop1");
+    				 RESULT.addChild(new TreeNode("MINUS", "MINUS", "minus"));
+    				 System.out.println("addop1");
+:};
+		
+term ::= term:tm mulop:mlp factor:fct {:
+    									 RESULT = new TreeNode("term");
+    									 RESULT.addChild(tm);
+    									 RESULT.addChild(mlp);
+    									 RESULT.addChild(fct);
+    								     System.out.println("term");
+:} 
+		 | factor:fct {:
+    					  RESULT = new TreeNode("term1");
+    					  RESULT.addChild(fct);
+    					  System.out.println("term1");
+:};
+	   
+mulop ::= TIMES {:
+    				   RESULT = new TreeNode("mulop");
+    				   RESULT.addChild(new TreeNode("TIMES", "TIMES", "times"));
+    				   System.out.println("mulop");
+:} 
+		   | DIVIDE {:
+    				   RESULT = new TreeNode("mulop1");
+    				   RESULT.addChild(new TreeNode("DIVIDE", "DIVIDE", "divide"));
+   					   System.out.println("mulop1");
+:};
+	   
+factor ::= LPAREN expression:ex RPAREN {:
+    										RESULT = new TreeNode("factor");
+    										RESULT.addChild(new TreeNode("LPAREN", "LPAREN", "LPAREN"));
+    										RESULT.addChild(ex);
+    										RESULT.addChild(new TreeNode("RPAREN", "RPAREN", "rparen"));
+    										System.out.println("factor");
+:} 
+		   | var:vr {:
+    					RESULT = new TreeNode("factor1");
+    					RESULT.addChild(vr);
+    					System.out.println("factor1");
+:} 
+		   | call:cl {:
+    					RESULT = new TreeNode("factor2");
+    					RESULT.addChild(cl);
+    					System.out.println("factor2");
+:} 
+		   | NUMBER {:
+    					RESULT = new TreeNode("factor3");
+    					RESULT.addChild(new TreeNode("NUMBER", "NUMBER", "number"));
+    					System.out.println("factor3");
+:};
+		 
+call ::= ID LPAREN args:ags RPAREN {:
+    									RESULT = new TreeNode("call");
+    									RESULT.addChild(new TreeNode("ID", "callName", "call"));
+    									RESULT.addChild(new TreeNode("LPAREN", "LPAREN", "LPAREN"));
+    									RESULT.addChild(ags);
+    									RESULT.addChild(new TreeNode("RPAREN", "RPAREN", "rparen"));
+    									System.out.println("call");
+:};
+		
+args ::= arg_list:agl {:
+    						RESULT = new TreeNode("args");
+    						RESULT.addChild(agl);
+    						System.out.println("args");
+:} 
+		 | /* empty */ {:
+   							 RESULT = new TreeNode("args");
+    						 System.out.println("args");
+:};
+
+arg_list ::= arg_list:agl COMMA expression:ex {:
+    											  RESULT = new TreeNode("arg_list");
+    										      RESULT.addChild(agl);
+    											  RESULT.addChild(new TreeNode("COMMA", "COMMA", "comma"));
+    											  RESULT.addChild(ex);
+    											  System.out.println("arg_list");
+:} 
+			 | expression:ex {:
+    							  RESULT = new TreeNode("arg_list1");
+    							  RESULT.addChild(ex);
+    							  System.out.println("arg_list1");
+:};		 
+		   				 			   
+expr_list ::= expr_list expr:e SEMI         {: System.out.println(e); :}
+            | expr:e SEMI                   {: System.out.println(e); :}
+            ;
+            
+expr      ::= expr:e1 PLUS  expr:e2         {: RESULT = e1+e2;        :}
+             | expr:e1 MINUS expr:e2        {: RESULT = e1-e2;        :}
+             | expr:e1 TIMES expr:e2        {: RESULT = e1*e2;        :}
+             | MINUS expr:e                 {: RESULT = -e;           :}
+             %prec UMINUS
+             | LPAREN expr:e RPAREN	         {: RESULT = e;           :}
+             | NUMBER:n	                     {: RESULT = n;           :}
+             ;
+       

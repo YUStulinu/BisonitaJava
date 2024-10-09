@@ -1,0 +1,5 @@
+program test;
+string s;
+integer a, b, Cat13;
+real C, Dog;
+endprogram;
